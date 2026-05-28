@@ -88,6 +88,21 @@
   #pdf-scroll::-webkit-scrollbar-thumb { background: #4a4a7a; border-radius: 4px; }
   #pdf-scroll::-webkit-scrollbar-corner { background: #1a1a2e; }
   #pdf-canvas-wrap { position: relative; display: inline-block; }
+  /* スクロールボタン */
+  .pdf-scroll-btn {
+    position: absolute; z-index: 15;
+    width: 36px; height: 36px; border-radius: 50%;
+    background: rgba(30,30,56,0.85); border: 1px solid #4a4a7a;
+    color: #9090b8; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; -webkit-user-select: none; user-select: none;
+    touch-action: manipulation;
+  }
+  .pdf-scroll-btn:active { background: rgba(124,92,191,0.8); color: white; }
+  .pdf-scroll-btn svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+  #scroll-up    { top: 8px;    left: 50%; transform: translateX(-50%); }
+  #scroll-down  { bottom: 8px; left: 50%; transform: translateX(-50%); }
+  #scroll-left  { left: 8px;   top: 50%; transform: translateY(-50%); }
+  #scroll-right { right: 8px;  top: 50%; transform: translateY(-50%); }
   #pdf-draw { touch-action: none; }
   /* リサイザー */
   #resizer {
@@ -195,6 +210,7 @@
     <div class="sep"></div>
     <div id="color-row">
       <div class="color-dot active" style="background:#1a1a1a" data-color="#1a1a1a" data-tool="pen" title="黒"></div>
+      <div class="color-dot" style="background:#1a6ee0" data-color="#1a6ee0" data-tool="pen" title="青"></div>
       <div class="color-dot" style="background:#e03030" data-color="#e03030" data-tool="pen" title="赤"></div>
       <div class="color-dot" style="background:#1a9e3a" data-color="#1a9e3a" data-tool="pen" title="緑"></div>
       <div class="color-dot highlight" style="background:#ffe033" data-color="#ffe033" data-tool="marker" title="蛍光黄"></div>
@@ -262,6 +278,10 @@
             <canvas id="pdf-draw"></canvas>
           </div>
         </div>
+        <button class="pdf-scroll-btn" id="scroll-up"><svg viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg></button>
+        <button class="pdf-scroll-btn" id="scroll-down"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></button>
+        <button class="pdf-scroll-btn" id="scroll-left"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg></button>
+        <button class="pdf-scroll-btn" id="scroll-right"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></button>
         <div id="drop-overlay">
           <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
           <p>PDFをここにドロップ</p>
@@ -335,7 +355,7 @@ const STORAGE_KEY = 'pdfnote_v3';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 let pdfDoc = null, currentPage = 1, totalPages = 0;
-let activeTool = 'pen', drawColor = '#5b3abf', drawSize = 3, fontSize = 16;
+let activeTool = 'pen', drawColor = '#1a1a1a', drawSize = 3, fontSize = 16;
 let isDrawing = false, activePanel = null, currentLine = null;
 let annotations = {};
 let pdfRawData = null;
@@ -763,6 +783,34 @@ $('btn-zoom-fit').addEventListener('click', async () => {
   renderPage(currentPage);
   $('zoom-info').textContent = '100%';
 });
+
+// --- スクロールボタン ---
+(function(){
+  const scroll = $('pdf-scroll');
+  const STEP = 120;
+  let timer = null;
+
+  function startScroll(dx, dy) {
+    scroll.scrollBy({ left: dx, top: dy, behavior: 'smooth' });
+    timer = setInterval(() => scroll.scrollBy({ left: dx, top: dy }), 120);
+  }
+  function stopScroll() { clearInterval(timer); timer = null; }
+
+  const btns = [
+    { id: 'scroll-up',    dx: 0,     dy: -STEP },
+    { id: 'scroll-down',  dx: 0,     dy:  STEP },
+    { id: 'scroll-left',  dx: -STEP, dy: 0     },
+    { id: 'scroll-right', dx:  STEP, dy: 0     },
+  ];
+  btns.forEach(({ id, dx, dy }) => {
+    const btn = $(id);
+    btn.addEventListener('mousedown',  () => startScroll(dx, dy));
+    btn.addEventListener('touchstart', () => startScroll(dx, dy), { passive: true });
+    btn.addEventListener('mouseup',   stopScroll);
+    btn.addEventListener('mouseleave',stopScroll);
+    btn.addEventListener('touchend',  stopScroll);
+  });
+})();
 
 // --- リサイザー ---
 (function() {
