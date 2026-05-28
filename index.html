@@ -75,27 +75,37 @@
   }
   .cwrap { flex: 1; position: relative; overflow: hidden; }
   canvas { position: absolute; top: 0; left: 0; touch-action: none; display: block; }
+  #pdf-scroll { width: 100%; height: 100%; overflow: auto; position: relative; -webkit-overflow-scrolling: touch; }
+  #pdf-canvas-wrap { position: relative; transform-origin: top left; }
 
+  /* テキスト入力モーダル（画面下部固定） */
   #text-input-overlay {
-    position: absolute; z-index: 30; display: none; flex-direction: column; gap: 0;
+    position: fixed; left: 0; right: 0; bottom: 0;
+    z-index: 300; display: none; flex-direction: column;
+    background: #1e1e38; border-top: 2px solid #7c5cbf;
+    padding: 12px 16px; padding-bottom: max(12px, env(safe-area-inset-bottom));
+    gap: 10px;
   }
   #text-input-overlay.visible { display: flex; }
+  #text-input-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  #text-input-top span { font-size: 13px; color: #9090b8; }
+  #text-input-actions { display: flex; gap: 8px; }
+  .text-action-btn {
+    padding: 8px 20px; font-size: 14px; cursor: pointer; border: none;
+    border-radius: 8px; font-weight: 600;
+    -webkit-user-select: none; user-select: none;
+  }
+  #text-confirm-btn { background: #7c5cbf; color: white; flex: 1; }
+  #text-cancel-btn { background: #3a3a5c; color: #9090b8; }
   #text-textarea {
-    min-width: 160px; min-height: 40px;
+    width: 100%; min-height: 60px; max-height: 120px;
     background: rgba(255,255,255,0.97);
-    border: 2px solid #7c5cbf; border-radius: 8px 8px 0 0;
-    padding: 6px 10px; font-size: 16px;
-    outline: none; resize: both; overflow: auto;
+    border: 1.5px solid #7c5cbf; border-radius: 8px;
+    padding: 8px 12px; font-size: 16px;
+    outline: none; resize: none; overflow: auto;
     color: #1a1a2e; line-height: 1.5;
     font-family: 'Helvetica Neue', sans-serif;
   }
-  #text-input-actions { display: flex; }
-  .text-action-btn {
-    flex: 1; padding: 7px 0; font-size: 13px; cursor: pointer;
-    border: none; -webkit-user-select: none; user-select: none;
-  }
-  #text-confirm-btn { background: #7c5cbf; color: white; border-radius: 0 0 0 8px; border-right: 1px solid #5a3a9f; }
-  #text-cancel-btn { background: #3a3a5c; color: #9090b8; border-radius: 0 0 8px 0; }
 
   #drop-overlay {
     position: absolute; inset: 0; display: flex; flex-direction: column;
@@ -224,8 +234,12 @@
     <div class="panel">
       <div class="plabel">PDF</div>
       <div class="cwrap" id="pdf-wrap">
-        <canvas id="pdf-bg"></canvas>
-        <canvas id="pdf-draw"></canvas>
+        <div id="pdf-scroll">
+          <div id="pdf-canvas-wrap">
+            <canvas id="pdf-bg"></canvas>
+            <canvas id="pdf-draw"></canvas>
+          </div>
+        </div>
         <div id="drop-overlay">
           <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
           <p>PDFをここにドロップ</p>
@@ -238,16 +252,21 @@
       <div class="cwrap" id="memo-wrap">
         <canvas id="memo-bg"></canvas>
         <canvas id="memo-draw"></canvas>
-        <div id="text-input-overlay">
-          <textarea id="text-textarea" rows="2" placeholder="ここに入力…"></textarea>
-          <div id="text-input-actions">
-            <button class="text-action-btn" id="text-confirm-btn">確定</button>
-            <button class="text-action-btn" id="text-cancel-btn">キャンセル</button>
-          </div>
-        </div>
       </div>
     </div>
   </div>
+</div>
+
+<!-- テキスト入力（画面下部固定） -->
+<div id="text-input-overlay">
+  <div id="text-input-top">
+    <span>テキストを入力</span>
+    <div id="text-input-actions">
+      <button class="text-action-btn" id="text-cancel-btn">キャンセル</button>
+      <button class="text-action-btn" id="text-confirm-btn">確定</button>
+    </div>
+  </div>
+  <textarea id="text-textarea" rows="3" placeholder="ここに入力…"></textarea>
 </div>
 
 <!-- エクスポートモーダル -->
@@ -296,7 +315,9 @@ let pdfDoc = null, currentPage = 1, totalPages = 0;
 let activeTool = 'pen', drawColor = '#5b3abf', drawSize = 3, fontSize = 16;
 let isDrawing = false, activePanel = null, currentLine = null;
 let annotations = {};
-let pdfRawData = null; // 元PDFのArrayBuffer保持
+let pdfRawData = null;
+let pdfScale = 1.0; // 現在の表示倍率
+const PDF_BASE_SCALE_MARGIN = 0.98;
 
 const $ = id => document.getElementById(id);
 const pdfBg = $('pdf-bg'), pdfDraw = $('pdf-draw');
@@ -322,8 +343,7 @@ function load() {
 }
 
 function resizeAll() {
-  const w1 = $('pdf-wrap'), w2 = $('memo-wrap');
-  [pdfBg, pdfDraw].forEach(c => { c.width = w1.clientWidth; c.height = w1.clientHeight; });
+  const w2 = $('memo-wrap');
   [memoBg, memoDraw].forEach(c => { c.width = w2.clientWidth; c.height = w2.clientHeight; });
   drawMemoLines();
   if (pdfDoc) renderPage(currentPage); else redrawPanel('pdf');
@@ -344,14 +364,21 @@ function drawMemoLines() {
 async function renderPage(n) {
   if (!pdfDoc) return;
   const page = await pdfDoc.getPage(n);
-  const wrap = $('pdf-wrap');
+  const scroll = $('pdf-scroll');
+  const canvasWrap = $('pdf-canvas-wrap');
   const vp0 = page.getViewport({ scale: 1 });
-  const scale = Math.min(wrap.clientWidth / vp0.width, wrap.clientHeight / vp0.height) * 0.96;
-  const vp = page.getViewport({ scale });
+  // 初回またはfitScale: パネル幅に合わせた基準スケール
+  const fitScale = (scroll.clientWidth / vp0.width) * PDF_BASE_SCALE_MARGIN;
+  if (n !== currentPage) pdfScale = fitScale;
+  const vp = page.getViewport({ scale: pdfScale });
+  // canvasサイズをページに合わせる
+  pdfBg.width = vp.width; pdfBg.height = vp.height;
+  pdfDraw.width = vp.width; pdfDraw.height = vp.height;
+  canvasWrap.style.width = vp.width + 'px';
+  canvasWrap.style.height = vp.height + 'px';
   const bgCtx = pdfBg.getContext('2d');
   bgCtx.fillStyle = '#ffffff'; bgCtx.fillRect(0, 0, pdfBg.width, pdfBg.height);
-  const ox = (pdfBg.width - vp.width) / 2, oy = (pdfBg.height - vp.height) / 2;
-  await page.render({ canvasContext: bgCtx, viewport: vp, transform: [1,0,0,1,ox,oy] }).promise;
+  await page.render({ canvasContext: bgCtx, viewport: vp }).promise;
   redrawPanel('pdf');
   $('page-info').textContent = n + ' / ' + totalPages;
 }
@@ -528,30 +555,35 @@ $('export-both').addEventListener('click', () => exportPDF('both'));
 // --- テキスト入力 ---
 function openTextInput(x, y) {
   pendingTextX = x; pendingTextY = y;
-  const memoWrap = $('memo-wrap');
-  const maxLeft = memoWrap.clientWidth - 200, maxTop = memoWrap.clientHeight - 120;
-  textOverlay.style.left = Math.min(x, maxLeft) + 'px';
-  textOverlay.style.top = Math.min(y, maxTop) + 'px';
   textArea.value = '';
   textArea.style.fontSize = fontSize + 'px';
   textArea.style.color = drawColor;
   textOverlay.classList.add('visible');
-  setTimeout(() => textArea.focus(), 50);
+  setTimeout(() => { textArea.focus(); textArea.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, 80);
 }
 function confirmText() {
   const text = textArea.value.trim();
   textOverlay.classList.remove('visible');
+  textArea.blur();
   if (!text) return;
   const k = pageKey('memo');
   if (!annotations[k]) annotations[k] = [];
   annotations[k].push({ type: 'text', text, x: pendingTextX, y: pendingTextY + fontSize, color: drawColor, size: fontSize });
   redrawPanel('memo');
 }
-function cancelText() { textOverlay.classList.remove('visible'); textArea.value = ''; }
+function cancelText() {
+  textOverlay.classList.remove('visible');
+  textArea.blur();
+  textArea.value = '';
+}
 $('text-confirm-btn').addEventListener('click', confirmText);
 $('text-confirm-btn').addEventListener('touchend', e => { e.preventDefault(); confirmText(); });
 $('text-cancel-btn').addEventListener('click', cancelText);
 $('text-cancel-btn').addEventListener('touchend', e => { e.preventDefault(); cancelText(); });
+// EnterキーでもOK（Shift+Enterは改行）
+textArea.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirmText(); }
+});
 
 // --- 描画 ---
 function getPos(e, canvas) {
@@ -639,8 +671,8 @@ $('btn-clear').addEventListener('click', () => {
   ['pdf','memo'].forEach(p => { annotations[pageKey(p)] = []; redrawPanel(p); });
   toast('このページの書き込みを消しました');
 });
-$('btn-prev').addEventListener('click', () => { if (currentPage > 1) { currentPage--; renderPage(currentPage); redrawPanel('memo'); } });
-$('btn-next').addEventListener('click', () => { if (currentPage < totalPages) { currentPage++; renderPage(currentPage); redrawPanel('memo'); } });
+$('btn-prev').addEventListener('click', () => { if (currentPage > 1) { const prev = currentPage; currentPage--; pdfScale = 1.0; renderPage(currentPage); redrawPanel('memo'); } });
+$('btn-next').addEventListener('click', () => { if (currentPage < totalPages) { currentPage++; pdfScale = 1.0; renderPage(currentPage); redrawPanel('memo'); } });
 // JSON保存
 $('btn-save-json').addEventListener('click', () => {
   try {
@@ -682,6 +714,38 @@ $('file-input').addEventListener('change', e => { if (e.target.files[0]) loadPDF
 const wrap = $('pdf-wrap');
 wrap.addEventListener('dragover', e => e.preventDefault());
 wrap.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f && f.type === 'application/pdf') loadPDF(f); });
+
+// --- ピンチズーム ---
+(function() {
+  const scroll = $('pdf-scroll');
+  let lastDist = null;
+  let lastScale = 1;
+
+  function getDist(touches) {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx*dx + dy*dy);
+  }
+
+  scroll.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) { lastDist = getDist(e.touches); lastScale = pdfScale; e.preventDefault(); }
+  }, { passive: false });
+
+  scroll.addEventListener('touchmove', e => {
+    if (e.touches.length === 2 && lastDist) {
+      e.preventDefault();
+      const dist = getDist(e.touches);
+      const ratio = dist / lastDist;
+      const newScale = Math.min(Math.max(lastScale * ratio, 0.5), 5.0);
+      if (Math.abs(newScale - pdfScale) > 0.01) {
+        pdfScale = newScale;
+        renderPage(currentPage);
+      }
+    }
+  }, { passive: false });
+
+  scroll.addEventListener('touchend', e => { if (e.touches.length < 2) lastDist = null; });
+})();
 
 window.addEventListener('resize', resizeAll);
 load();
