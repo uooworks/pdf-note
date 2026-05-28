@@ -37,6 +37,7 @@
 
   .sep { width: 1px; height: 28px; background: #2a2a4a; flex-shrink: 0; margin: 0 2px; }
   #zoom-ctrl { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  #scroll-ctrl { display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
   #zoom-info { font-size: 12px; color: #6060a0; white-space: nowrap; min-width: 38px; text-align: center; }
   /* 色ボタン */
   .color-dot { width: 24px; height: 24px; border-radius: 50%; cursor: pointer; flex-shrink: 0; border: 2px solid transparent; transition: transform 0.15s; }
@@ -88,21 +89,7 @@
   #pdf-scroll::-webkit-scrollbar-thumb { background: #4a4a7a; border-radius: 4px; }
   #pdf-scroll::-webkit-scrollbar-corner { background: #1a1a2e; }
   #pdf-canvas-wrap { position: relative; display: inline-block; }
-  /* スクロールボタン */
-  .pdf-scroll-btn {
-    position: absolute; z-index: 15;
-    width: 36px; height: 36px; border-radius: 50%;
-    background: rgba(30,30,56,0.85); border: 1px solid #4a4a7a;
-    color: #9090b8; display: flex; align-items: center; justify-content: center;
-    cursor: pointer; -webkit-user-select: none; user-select: none;
-    touch-action: manipulation;
-  }
-  .pdf-scroll-btn:active { background: rgba(124,92,191,0.8); color: white; }
-  .pdf-scroll-btn svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
-  #scroll-up    { top: 50px;   left: 50%; transform: translateX(-50%); }
-  #scroll-down  { bottom: 12px; left: 50%; transform: translateX(-50%); }
-  #scroll-left  { left: 12px;  top: 50%; transform: translateY(-50%); }
-  #scroll-right { right: 12px; top: 50%; transform: translateY(-50%); }
+
   #pdf-draw { touch-action: none; }
   /* リサイザー */
   #resizer {
@@ -207,6 +194,9 @@
     <button class="tbtn" id="btn-eraser" aria-label="消しゴム">
       <svg viewBox="0 0 24 24"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
     </button>
+    <button class="tbtn" id="btn-move" aria-label="移動">
+      <svg viewBox="0 0 24 24"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>
+    </button>
     <div class="sep"></div>
     <div id="color-row">
       <div class="color-dot active" style="background:#1a1a1a" data-color="#1a1a1a" data-tool="pen" title="黒"></div>
@@ -259,6 +249,21 @@
       </button>
     </div>
     <div class="sep"></div>
+    <div id="scroll-ctrl">
+      <button class="tbtn" id="scroll-up" aria-label="上へ" style="min-width:34px;">
+        <svg viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg>
+      </button>
+      <button class="tbtn" id="scroll-down" aria-label="下へ" style="min-width:34px;">
+        <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <button class="tbtn" id="scroll-left" aria-label="左へ" style="min-width:34px;">
+        <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <button class="tbtn" id="scroll-right" aria-label="右へ" style="min-width:34px;">
+        <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </div>
+    <div class="sep"></div>
     <button class="tbtn" id="btn-save" aria-label="一時保存">
       <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
     </button>
@@ -284,10 +289,6 @@
           <label class="open-btn" for="file-input">PDFを開く</label>
         </div>
       </div>
-      <button class="pdf-scroll-btn" id="scroll-up"><svg viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg></button>
-      <button class="pdf-scroll-btn" id="scroll-down"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></button>
-      <button class="pdf-scroll-btn" id="scroll-left"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg></button>
-      <button class="pdf-scroll-btn" id="scroll-right"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></button>
     </div>
     <div id="resizer"></div>
     <div class="panel" id="panel-memo">
@@ -635,11 +636,35 @@ function getPos(e, canvas) {
   return { x: s.clientX - r.left, y: s.clientY - r.top };
 }
 
+// 移動ツール用
+let moveStartX = 0, moveStartY = 0, moveScrollLeft = 0, moveScrollTop = 0, isMoving = false;
+
 function onStart(e, panel) {
-  if (e.touches && e.touches.length >= 2) return;
+  if (e.touches && e.touches.length >= 2) {
+    // 2本指: スクロール（移動モード不要でも動く）
+    if (panel === 'pdf') {
+      const scroll = $('pdf-scroll');
+      const t0 = e.touches[0], t1 = e.touches[1];
+      moveStartX = (t0.clientX + t1.clientX) / 2;
+      moveStartY = (t0.clientY + t1.clientY) / 2;
+      moveScrollLeft = scroll.scrollLeft;
+      moveScrollTop = scroll.scrollTop;
+      isMoving = true;
+    }
+    return;
+  }
   if (activeTool === 'text') {
     if (panel !== 'memo') return;
     openTextInput(...Object.values(getPos(e, memoDraw)));
+    e.preventDefault(); return;
+  }
+  if (activeTool === 'move' && panel === 'pdf') {
+    const scroll = $('pdf-scroll');
+    const src = e.touches ? e.touches[0] : e;
+    moveStartX = src.clientX; moveStartY = src.clientY;
+    moveScrollLeft = scroll.scrollLeft; moveScrollTop = scroll.scrollTop;
+    isMoving = true;
+    scroll.style.cursor = 'grabbing';
     e.preventDefault(); return;
   }
   isDrawing = true; activePanel = panel;
@@ -649,6 +674,22 @@ function onStart(e, panel) {
   e.preventDefault();
 }
 function onMove(e) {
+  // 移動処理（1本指moveツール または 2本指スクロール）
+  if (isMoving) {
+    const scroll = $('pdf-scroll');
+    let cx, cy;
+    if (e.touches && e.touches.length >= 2) {
+      cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    } else if (e.touches && e.touches.length === 1) {
+      cx = e.touches[0].clientX; cy = e.touches[0].clientY;
+    } else {
+      cx = e.clientX; cy = e.clientY;
+    }
+    scroll.scrollLeft = moveScrollLeft - (cx - moveStartX);
+    scroll.scrollTop  = moveScrollTop  - (cy - moveStartY);
+    e.preventDefault(); return;
+  }
   if (!isDrawing || !activePanel || !currentLine) return;
   if (e.touches && e.touches.length >= 2) { onEnd(); return; }
   const canvas = activePanel === 'pdf' ? pdfDraw : memoDraw;
@@ -669,6 +710,12 @@ function onMove(e) {
   e.preventDefault();
 }
 function onEnd() {
+  if (isMoving) {
+    isMoving = false;
+    const scroll = $('pdf-scroll');
+    scroll.style.cursor = activeTool === 'move' ? 'grab' : 'default';
+    return;
+  }
   if (!isDrawing || !activePanel || !currentLine) return;
   isDrawing = false;
   const k = pageKey(activePanel);
@@ -692,13 +739,16 @@ document.addEventListener('touchend', onEnd);
 // --- ツール ---
 function setTool(t) {
   activeTool = t;
-  ['pen','text','eraser'].forEach(n => { const b = $('btn-'+n); if(b) b.classList.toggle('active', n===t); });
+  ['pen','text','eraser','move'].forEach(n => { const b = $('btn-'+n); if(b) b.classList.toggle('active', n===t); });
   $('size-wrap').style.display = t === 'text' ? 'none' : 'flex';
   $('font-size-wrap').style.display = t === 'text' ? 'flex' : 'none';
+  // カーソル表示
+  const scroll = $('pdf-scroll');
+  scroll.style.cursor = t === 'move' ? 'grab' : 'default';
   if (t === 'text') toast('メモ欄をタップして文字を入力');
+  if (t === 'move') toast('PDFを指でドラッグして移動');
 }
 $('btn-pen').addEventListener('click', () => {
-  // penに戻すとき、最後のペン色（黒・赤・緑のいずれか）を選択状態に
   const penDot = document.querySelector('.color-dot[data-tool="pen"].active') ||
                  document.querySelector('.color-dot[data-tool="pen"]');
   if (penDot) { document.querySelectorAll('.color-dot').forEach(d=>d.classList.remove('active')); penDot.classList.add('active'); drawColor = penDot.dataset.color; }
@@ -706,6 +756,7 @@ $('btn-pen').addEventListener('click', () => {
 });
 $('btn-text').addEventListener('click', () => setTool('text'));
 $('btn-eraser').addEventListener('click', () => setTool('eraser'));
+$('btn-move').addEventListener('click', () => setTool('move'));
 
 document.querySelectorAll('.color-dot').forEach(dot => {
   dot.addEventListener('click', () => {
@@ -784,31 +835,28 @@ $('btn-zoom-fit').addEventListener('click', async () => {
   $('zoom-info').textContent = '100%';
 });
 
-// --- スクロールボタン ---
+// --- スクロールボタン（ツールバー） ---
 (function(){
   const scroll = $('pdf-scroll');
-  const STEP = 120;
+  const STEP = 150;
   let timer = null;
-
   function startScroll(dx, dy) {
     scroll.scrollBy({ left: dx, top: dy, behavior: 'smooth' });
-    timer = setInterval(() => scroll.scrollBy({ left: dx, top: dy }), 120);
+    timer = setInterval(() => scroll.scrollBy({ left: dx, top: dy }), 150);
   }
   function stopScroll() { clearInterval(timer); timer = null; }
-
-  const btns = [
+  [
     { id: 'scroll-up',    dx: 0,     dy: -STEP },
     { id: 'scroll-down',  dx: 0,     dy:  STEP },
     { id: 'scroll-left',  dx: -STEP, dy: 0     },
     { id: 'scroll-right', dx:  STEP, dy: 0     },
-  ];
-  btns.forEach(({ id, dx, dy }) => {
-    const btn = $(id);
-    btn.addEventListener('mousedown',  () => startScroll(dx, dy));
-    btn.addEventListener('touchstart', () => startScroll(dx, dy), { passive: true });
-    btn.addEventListener('mouseup',   stopScroll);
-    btn.addEventListener('mouseleave',stopScroll);
-    btn.addEventListener('touchend',  stopScroll);
+  ].forEach(({ id, dx, dy }) => {
+    const btn = $(id); if (!btn) return;
+    btn.addEventListener('mousedown',  e => { e.preventDefault(); startScroll(dx, dy); });
+    btn.addEventListener('touchstart', e => { e.preventDefault(); startScroll(dx, dy); }, { passive: false });
+    btn.addEventListener('mouseup',    stopScroll);
+    btn.addEventListener('mouseleave', stopScroll);
+    btn.addEventListener('touchend',   stopScroll);
   });
 })();
 
@@ -827,25 +875,30 @@ $('btn-zoom-fit').addEventListener('click', async () => {
     startPdfW = panelPdf.getBoundingClientRect().width;
     e.preventDefault();
   }
+  let resizeTimer = null;
   function doResize(e) {
     if (!dragging) return;
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const dx = clientX - startX;
-    const totalW = panels.clientWidth - 10; // resizerの幅を引く
+    const totalW = panels.clientWidth - 10;
     const newPdfW = Math.min(Math.max(startPdfW + dx, 80), totalW - 80);
     const newMemoW = totalW - newPdfW;
     panelPdf.style.flex = 'none';
     panelPdf.style.width = newPdfW + 'px';
     panelMemo.style.flex = 'none';
     panelMemo.style.width = newMemoW + 'px';
-    // メモcanvasリサイズ
     const memoWrap = $('memo-wrap');
     [memoBg, memoDraw].forEach(c => { c.width = memoWrap.clientWidth; c.height = memoWrap.clientHeight; });
     drawMemoLines(); redrawPanel('memo');
-    if (pdfDoc) renderPage(currentPage);
+    // renderPageはdebounceして反転防止
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { if (pdfDoc) renderPage(currentPage); }, 150);
     e.preventDefault();
   }
-  function endResize() { dragging = false; resizer.classList.remove('dragging'); }
+  function endResize() {
+    dragging = false; resizer.classList.remove('dragging');
+    if (pdfDoc) renderPage(currentPage);
+  }
 
   resizer.addEventListener('mousedown', startResize);
   resizer.addEventListener('touchstart', startResize, { passive: false });
