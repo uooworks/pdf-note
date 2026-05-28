@@ -405,26 +405,45 @@ function drawMemoLines() {
   ctx.beginPath(); ctx.moveTo(52, 0); ctx.lineTo(52, memoBg.height); ctx.stroke();
 }
 
+let renderTask = null; // 同時render防止
 async function renderPage(n) {
   if (!pdfDoc) return;
+  // 前のrenderをキャンセル
+  if (renderTask) { try { renderTask.cancel(); } catch(e){} renderTask = null; }
+
   const page = await pdfDoc.getPage(n);
   const scroll = $('pdf-scroll');
   const canvasWrap = $('pdf-canvas-wrap');
   const vp0 = page.getViewport({ scale: 1 });
-  // 初回またはfitScale: パネル幅に合わせた基準スケール
+
+  // pdfScaleが未設定(1.0のまま)ならfitScaleに合わせる
   const fitScale = (scroll.clientWidth / vp0.width) * PDF_BASE_SCALE_MARGIN;
-  if (n !== currentPage) pdfScale = fitScale;
+  if (pdfScale === 1.0) pdfScale = fitScale;
+
   const vp = page.getViewport({ scale: pdfScale });
-  // canvasサイズをページに合わせる
-  pdfBg.width = vp.width; pdfBg.height = vp.height;
-  pdfDraw.width = vp.width; pdfDraw.height = vp.height;
-  canvasWrap.style.width = vp.width + 'px';
-  canvasWrap.style.height = vp.height + 'px';
+
+  // canvasサイズをviewportに合わせる（重要：先にサイズ確定）
+  pdfBg.width  = Math.floor(vp.width);
+  pdfBg.height = Math.floor(vp.height);
+  pdfDraw.width  = Math.floor(vp.width);
+  pdfDraw.height = Math.floor(vp.height);
+  canvasWrap.style.width  = Math.floor(vp.width)  + 'px';
+  canvasWrap.style.height = Math.floor(vp.height) + 'px';
+
   const bgCtx = pdfBg.getContext('2d');
-  bgCtx.fillStyle = '#ffffff'; bgCtx.fillRect(0, 0, pdfBg.width, pdfBg.height);
-  await page.render({ canvasContext: bgCtx, viewport: vp }).promise;
+  bgCtx.fillStyle = '#ffffff';
+  bgCtx.fillRect(0, 0, pdfBg.width, pdfBg.height);
+
+  try {
+    renderTask = page.render({ canvasContext: bgCtx, viewport: vp });
+    await renderTask.promise;
+  } catch(e) {
+    if (e && e.message === 'Rendering cancelled') return;
+  }
+  renderTask = null;
   redrawPanel('pdf');
   $('page-info').textContent = n + ' / ' + totalPages;
+  updateZoomInfo();
 }
 
 function redrawPanel(panel) {
@@ -807,9 +826,9 @@ wrap.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfe
 
 // --- ズームボタン ---
 function updateZoomInfo() {
-  const scroll = $('pdf-scroll');
   if (!pdfDoc) return;
-  const page_promise = pdfDoc.getPage(currentPage).then(page => {
+  const scroll = $('pdf-scroll');
+  pdfDoc.getPage(currentPage).then(page => {
     const vp0 = page.getViewport({ scale: 1 });
     const fitScale = (scroll.clientWidth / vp0.width) * PDF_BASE_SCALE_MARGIN;
     const pct = Math.round((pdfScale / fitScale) * 100);
@@ -818,21 +837,19 @@ function updateZoomInfo() {
 }
 
 $('btn-zoom-in').addEventListener('click', () => {
+  if (!pdfDoc) return;
   pdfScale = Math.min(pdfScale * 1.25, 5.0);
-  renderPage(currentPage).then(updateZoomInfo);
+  renderPage(currentPage);
 });
 $('btn-zoom-out').addEventListener('click', () => {
+  if (!pdfDoc) return;
   pdfScale = Math.max(pdfScale * 0.8, 0.3);
-  renderPage(currentPage).then(updateZoomInfo);
+  renderPage(currentPage);
 });
 $('btn-zoom-fit').addEventListener('click', async () => {
   if (!pdfDoc) return;
-  const page = await pdfDoc.getPage(currentPage);
-  const scroll = $('pdf-scroll');
-  const vp0 = page.getViewport({ scale: 1 });
-  pdfScale = (scroll.clientWidth / vp0.width) * PDF_BASE_SCALE_MARGIN;
+  pdfScale = 1.0; // リセットしてfitScaleを再計算させる
   renderPage(currentPage);
-  $('zoom-info').textContent = '100%';
 });
 
 // --- スクロールボタン（ツールバー） ---
