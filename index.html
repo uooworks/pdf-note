@@ -67,8 +67,10 @@
   #page-ctrl { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
   #page-info { font-size: 12px; color: #6060a0; white-space: nowrap; min-width: 48px; text-align: center; }
 
-  #panels { display: flex; flex: 1; overflow: hidden; gap: 2px; background: #0d0d1e; }
-  .panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #12122a; }
+  #panels { display: flex; flex: 1; overflow: hidden; background: #0d0d1e; }
+  .panel { display: flex; flex-direction: column; overflow: hidden; background: #12122a; min-width: 80px; }
+  #panel-pdf { flex: 1; }
+  #panel-memo { flex: 1; }
   .plabel {
     font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
     color: #404070; text-align: center; padding: 4px 0;
@@ -76,9 +78,23 @@
   }
   .cwrap { flex: 1; position: relative; overflow: hidden; }
   canvas { position: absolute; top: 0; left: 0; touch-action: none; display: block; }
-  #pdf-draw { touch-action: pan-x pan-y; }
-  #pdf-scroll { width: 100%; height: 100%; overflow: auto; position: relative; -webkit-overflow-scrolling: touch; }
-  #pdf-canvas-wrap { position: relative; transform-origin: top left; }
+  /* PDFスクロール: overflow scroll + pointer-events none on draw canvas */
+  #pdf-scroll {
+    width: 100%; height: 100%; overflow: scroll;
+    -webkit-overflow-scrolling: touch;
+    position: relative;
+  }
+  #pdf-canvas-wrap { position: relative; display: inline-block; }
+  #pdf-draw { touch-action: none; pointer-events: none; } /* タッチはpdf-scrollで受ける */
+  /* リサイザー */
+  #resizer {
+    width: 10px; background: #1a1a3a; cursor: col-resize; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s; touch-action: none; z-index: 10;
+  }
+  #resizer:hover, #resizer.dragging { background: #7c5cbf; }
+  #resizer::after { content: ''; display: block; width: 2px; height: 32px; border-radius: 1px; background: #4a4a7a; }
+  #resizer.dragging::after { background: #c4a8ff; }
 
   /* テキスト入力モーダル（画面下部固定） */
   #text-input-overlay {
@@ -234,7 +250,7 @@
   </div>
 
   <div id="panels">
-    <div class="panel">
+    <div class="panel" id="panel-pdf">
       <div class="plabel">PDF</div>
       <div class="cwrap" id="pdf-wrap">
         <div id="pdf-scroll">
@@ -250,7 +266,8 @@
         </div>
       </div>
     </div>
-    <div class="panel">
+    <div id="resizer"></div>
+    <div class="panel" id="panel-memo">
       <div class="plabel">メモ</div>
       <div class="cwrap" id="memo-wrap">
         <canvas id="memo-bg"></canvas>
@@ -594,8 +611,14 @@ function getPos(e, canvas) {
   const s = e.touches ? e.touches[0] : e;
   return { x: s.clientX - r.left, y: s.clientY - r.top };
 }
+function getPosForPdf(e) {
+  // pdf-canvas-wrap の座標系で取得（スクロール・ズーム対応）
+  const wrap = $('pdf-canvas-wrap');
+  const r = wrap.getBoundingClientRect();
+  const s = e.touches ? e.touches[0] : e;
+  return { x: s.clientX - r.left, y: s.clientY - r.top };
+}
 function onStart(e, panel) {
-  // 2本指タッチはスクロール/ピンチに任せる
   if (e.touches && e.touches.length >= 2) return;
   if (activeTool === 'text') {
     if (panel !== 'memo') return;
@@ -603,17 +626,15 @@ function onStart(e, panel) {
     e.preventDefault(); return;
   }
   isDrawing = true; activePanel = panel;
-  const canvas = panel === 'pdf' ? pdfDraw : memoDraw;
-  const pos = getPos(e, canvas);
+  const pos = panel === 'pdf' ? getPosForPdf(e) : getPos(e, memoDraw);
   currentLine = { type: 'line', tool: activeTool, color: drawColor, size: drawSize, pts: [pos] };
   e.preventDefault();
 }
 function onMove(e) {
   if (!isDrawing || !activePanel || !currentLine) return;
   if (e.touches && e.touches.length >= 2) { onEnd(); return; }
-  const canvas = activePanel === 'pdf' ? pdfDraw : memoDraw;
   const ctx = activePanel === 'pdf' ? pdfCtx : memoCtx;
-  const pos = getPos(e, canvas);
+  const pos = activePanel === 'pdf' ? getPosForPdf(e) : getPos(e, memoDraw);
   currentLine.pts.push(pos);
   const pts = currentLine.pts;
   ctx.save();
@@ -636,13 +657,21 @@ function onEnd() {
   annotations[k].push(currentLine);
   currentLine = null; activePanel = null;
 }
-[pdfDraw, memoDraw].forEach((canvas, i) => {
-  const panel = i === 0 ? 'pdf' : 'memo';
-  canvas.addEventListener('mousedown', e => onStart(e, panel));
-  canvas.addEventListener('touchstart', e => onStart(e, panel), { passive: false });
-});
+// PDF側: スクロールコンテナでタッチを受ける（pdf-drawはpointer-events:none）
+const pdfScroll = $('pdf-scroll');
+pdfScroll.addEventListener('mousedown', e => onStart(e, 'pdf'));
+pdfScroll.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) onStart(e, 'pdf');
+}, { passive: false });
+
+// メモ側: canvasで受ける
+memoDraw.addEventListener('mousedown', e => onStart(e, 'memo'));
+memoDraw.addEventListener('touchstart', e => onStart(e, 'memo'), { passive: false });
+
 document.addEventListener('mousemove', onMove);
-document.addEventListener('touchmove', onMove, { passive: false });
+document.addEventListener('touchmove', e => {
+  if (isDrawing) onMove(e);
+}, { passive: false });
 document.addEventListener('mouseup', onEnd);
 document.addEventListener('touchend', onEnd);
 
@@ -741,55 +770,89 @@ $('btn-zoom-fit').addEventListener('click', async () => {
   $('zoom-info').textContent = '100%';
 });
 
-// --- ピンチズーム＋2本指スクロール ---
+// --- ピンチズーム（反転バグ修正版）---
 (function() {
   const scroll = $('pdf-scroll');
-  let lastDist = null;
-  let lastScale = 1;
-  let startDist = null;
+  let pinchStartDist = null;
+  let pinchStartScale = 1;
   let isPinching = false;
-  const PINCH_THRESHOLD = 10; // この距離差以上でピンチと判定
+  const PINCH_THRESHOLD = 8;
 
   function getDist(touches) {
     const dx = touches[0].clientX - touches[1].clientX;
     const dy = touches[0].clientY - touches[1].clientY;
-    return Math.sqrt(dx*dx + dy*dy);
+    return Math.max(Math.sqrt(dx*dx + dy*dy), 1); // ゼロ除算防止
   }
 
   scroll.addEventListener('touchstart', e => {
     if (e.touches.length === 2) {
-      startDist = getDist(e.touches);
-      lastDist = startDist;
-      lastScale = pdfScale;
+      pinchStartDist = getDist(e.touches);
+      pinchStartScale = pdfScale;
       isPinching = false;
+      if (isDrawing) onEnd(); // 描画中なら終了
     }
   }, { passive: true });
 
   scroll.addEventListener('touchmove', e => {
-    if (e.touches.length === 2 && lastDist !== null) {
-      const dist = getDist(e.touches);
-      const distDiff = Math.abs(dist - startDist);
-
-      // 指の開閉量がしきい値を超えたらピンチと判定
-      if (!isPinching && distDiff > PINCH_THRESHOLD) isPinching = true;
-
-      if (isPinching) {
-        e.preventDefault();
-        const ratio = dist / lastDist;
-        const newScale = Math.min(Math.max(pdfScale * ratio, 0.5), 5.0);
-        if (Math.abs(newScale - pdfScale) > 0.005) {
-          pdfScale = newScale;
-          renderPage(currentPage);
-        }
-        lastDist = dist;
-      }
-      // isPinching が false の間はブラウザのスクロールに任せる
+    if (e.touches.length !== 2 || pinchStartDist === null) return;
+    const dist = getDist(e.touches);
+    if (!isPinching && Math.abs(dist - pinchStartDist) > PINCH_THRESHOLD) isPinching = true;
+    if (isPinching) {
+      e.preventDefault();
+      // startDistからの比率で計算（累積誤差なし）
+      const newScale = Math.min(Math.max(pinchStartScale * (dist / pinchStartDist), 0.3), 5.0);
+      pdfScale = newScale;
+      renderPage(currentPage);
+      updateZoomInfo();
     }
   }, { passive: false });
 
   scroll.addEventListener('touchend', e => {
-    if (e.touches.length < 2) { lastDist = null; startDist = null; isPinching = false; }
+    if (e.touches.length < 2) { pinchStartDist = null; isPinching = false; }
   });
+})();
+
+// --- リサイザー ---
+(function() {
+  const resizer = $('resizer');
+  const panelPdf = $('panel-pdf');
+  const panelMemo = $('panel-memo');
+  const panels = $('panels');
+  let dragging = false, startX = 0, startPdfW = 0;
+
+  function startResize(e) {
+    dragging = true;
+    resizer.classList.add('dragging');
+    startX = e.touches ? e.touches[0].clientX : e.clientX;
+    startPdfW = panelPdf.getBoundingClientRect().width;
+    e.preventDefault();
+  }
+  function doResize(e) {
+    if (!dragging) return;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const dx = clientX - startX;
+    const totalW = panels.clientWidth - 10; // resizerの幅を引く
+    const newPdfW = Math.min(Math.max(startPdfW + dx, 80), totalW - 80);
+    const newMemoW = totalW - newPdfW;
+    panelPdf.style.flex = 'none';
+    panelPdf.style.width = newPdfW + 'px';
+    panelMemo.style.flex = 'none';
+    panelMemo.style.width = newMemoW + 'px';
+    // メモcanvasリサイズ
+    const memoWrap = $('memo-wrap');
+    [memoBg, memoDraw].forEach(c => { c.width = memoWrap.clientWidth; c.height = memoWrap.clientHeight; });
+    drawMemoLines(); redrawPanel('memo');
+    if (pdfDoc) renderPage(currentPage);
+    e.preventDefault();
+  }
+  function endResize() { dragging = false; resizer.classList.remove('dragging'); }
+
+  resizer.addEventListener('mousedown', startResize);
+  resizer.addEventListener('touchstart', startResize, { passive: false });
+  document.addEventListener('mousemove', doResize);
+  document.addEventListener('touchmove', e => { if (dragging) doResize(e); }, { passive: false });
+  document.addEventListener('mouseup', endResize);
+  document.addEventListener('touchend', endResize);
 })();
 
 window.addEventListener('resize', resizeAll);
