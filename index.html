@@ -680,11 +680,16 @@ function onStart(e, panel) {
   if (activeTool === 'move' && panel === 'pdf') {
     const scroll = $('pdf-scroll');
     const src = e.touches ? e.touches[0] : e;
-    moveStartX = src.clientX; moveStartY = src.clientY;
-    moveScrollLeft = scroll.scrollLeft; moveScrollTop = scroll.scrollTop;
+    moveStartX = src.clientX;
+    moveStartY = src.clientY;
+    moveScrollLeft = scroll.scrollLeft;
+    moveScrollTop = scroll.scrollTop;
     isMoving = true;
+    isDrawing = false;
+    currentLine = null;
     scroll.style.cursor = 'grabbing';
-    e.preventDefault(); return;
+    if (e.cancelable) e.preventDefault();
+    return;
   }
   isDrawing = true; activePanel = panel;
   const canvas = panel === 'pdf' ? pdfDraw : memoDraw;
@@ -707,7 +712,8 @@ function onMove(e) {
     }
     scroll.scrollLeft = moveScrollLeft - (cx - moveStartX);
     scroll.scrollTop  = moveScrollTop  - (cy - moveStartY);
-    e.preventDefault(); return;
+    if (e.cancelable) e.preventDefault();
+    return;
   }
   if (!isDrawing || !activePanel || !currentLine) return;
   if (e.touches && e.touches.length >= 2) { onEnd(); return; }
@@ -751,9 +757,12 @@ memoDraw.addEventListener('mousedown', e => onStart(e, 'memo'));
 memoDraw.addEventListener('touchstart', e => onStart(e, 'memo'), { passive: false });
 
 document.addEventListener('mousemove', onMove);
-document.addEventListener('touchmove', e => { if (isDrawing) onMove(e); }, { passive: false });
+document.addEventListener('touchmove', e => {
+  if (isMoving || isDrawing) onMove(e);
+}, { passive: false });
 document.addEventListener('mouseup', onEnd);
 document.addEventListener('touchend', onEnd);
+document.addEventListener('touchcancel', onEnd);
 
 // --- ツール ---
 function setTool(t) {
@@ -761,9 +770,11 @@ function setTool(t) {
   ['pen','text','eraser','move'].forEach(n => { const b = $('btn-'+n); if(b) b.classList.toggle('active', n===t); });
   $('size-wrap').style.display = t === 'text' ? 'none' : 'flex';
   $('font-size-wrap').style.display = t === 'text' ? 'flex' : 'none';
-  // カーソル表示
+  // カーソル・touch-action切り替え
   const scroll = $('pdf-scroll');
   scroll.style.cursor = t === 'move' ? 'grab' : 'default';
+  // 移動ツール時はpdf-drawのtouch-actionをpanに（スクロール系のジェスチャを許可）
+  pdfDraw.style.touchAction = t === 'move' ? 'none' : 'none';
   if (t === 'text') toast('メモ欄をタップして文字を入力');
   if (t === 'move') toast('PDFを指でドラッグして移動');
 }
