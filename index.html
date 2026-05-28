@@ -78,14 +78,17 @@
   }
   .cwrap { flex: 1; position: relative; overflow: hidden; }
   canvas { position: absolute; top: 0; left: 0; touch-action: none; display: block; }
-  /* PDFスクロール: overflow scroll + pointer-events none on draw canvas */
   #pdf-scroll {
     width: 100%; height: 100%; overflow: scroll;
-    -webkit-overflow-scrolling: touch;
     position: relative;
   }
+  /* スクロールバーを常に表示（iPad） */
+  #pdf-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+  #pdf-scroll::-webkit-scrollbar-track { background: #1a1a2e; }
+  #pdf-scroll::-webkit-scrollbar-thumb { background: #4a4a7a; border-radius: 4px; }
+  #pdf-scroll::-webkit-scrollbar-corner { background: #1a1a2e; }
   #pdf-canvas-wrap { position: relative; display: inline-block; }
-  #pdf-draw { touch-action: none; pointer-events: none; } /* タッチはpdf-scrollで受ける */
+  #pdf-draw { touch-action: none; }
   /* リサイザー */
   #resizer {
     width: 10px; background: #1a1a3a; cursor: col-resize; flex-shrink: 0;
@@ -611,13 +614,7 @@ function getPos(e, canvas) {
   const s = e.touches ? e.touches[0] : e;
   return { x: s.clientX - r.left, y: s.clientY - r.top };
 }
-function getPosForPdf(e) {
-  // pdf-canvas-wrap の座標系で取得（スクロール・ズーム対応）
-  const wrap = $('pdf-canvas-wrap');
-  const r = wrap.getBoundingClientRect();
-  const s = e.touches ? e.touches[0] : e;
-  return { x: s.clientX - r.left, y: s.clientY - r.top };
-}
+
 function onStart(e, panel) {
   if (e.touches && e.touches.length >= 2) return;
   if (activeTool === 'text') {
@@ -626,15 +623,17 @@ function onStart(e, panel) {
     e.preventDefault(); return;
   }
   isDrawing = true; activePanel = panel;
-  const pos = panel === 'pdf' ? getPosForPdf(e) : getPos(e, memoDraw);
+  const canvas = panel === 'pdf' ? pdfDraw : memoDraw;
+  const pos = getPos(e, canvas);
   currentLine = { type: 'line', tool: activeTool, color: drawColor, size: drawSize, pts: [pos] };
   e.preventDefault();
 }
 function onMove(e) {
   if (!isDrawing || !activePanel || !currentLine) return;
   if (e.touches && e.touches.length >= 2) { onEnd(); return; }
+  const canvas = activePanel === 'pdf' ? pdfDraw : memoDraw;
   const ctx = activePanel === 'pdf' ? pdfCtx : memoCtx;
-  const pos = activePanel === 'pdf' ? getPosForPdf(e) : getPos(e, memoDraw);
+  const pos = getPos(e, canvas);
   currentLine.pts.push(pos);
   const pts = currentLine.pts;
   ctx.save();
@@ -657,21 +656,16 @@ function onEnd() {
   annotations[k].push(currentLine);
   currentLine = null; activePanel = null;
 }
-// PDF側: スクロールコンテナでタッチを受ける（pdf-drawはpointer-events:none）
-const pdfScroll = $('pdf-scroll');
-pdfScroll.addEventListener('mousedown', e => onStart(e, 'pdf'));
-pdfScroll.addEventListener('touchstart', e => {
-  if (e.touches.length === 1) onStart(e, 'pdf');
-}, { passive: false });
+// PDF側: pdf-drawで直接タッチ受付
+pdfDraw.addEventListener('mousedown', e => onStart(e, 'pdf'));
+pdfDraw.addEventListener('touchstart', e => onStart(e, 'pdf'), { passive: false });
 
-// メモ側: canvasで受ける
+// メモ側
 memoDraw.addEventListener('mousedown', e => onStart(e, 'memo'));
 memoDraw.addEventListener('touchstart', e => onStart(e, 'memo'), { passive: false });
 
 document.addEventListener('mousemove', onMove);
-document.addEventListener('touchmove', e => {
-  if (isDrawing) onMove(e);
-}, { passive: false });
+document.addEventListener('touchmove', e => { if (isDrawing) onMove(e); }, { passive: false });
 document.addEventListener('mouseup', onEnd);
 document.addEventListener('touchend', onEnd);
 
@@ -769,48 +763,6 @@ $('btn-zoom-fit').addEventListener('click', async () => {
   renderPage(currentPage);
   $('zoom-info').textContent = '100%';
 });
-
-// --- ピンチズーム（反転バグ修正版）---
-(function() {
-  const scroll = $('pdf-scroll');
-  let pinchStartDist = null;
-  let pinchStartScale = 1;
-  let isPinching = false;
-  const PINCH_THRESHOLD = 8;
-
-  function getDist(touches) {
-    const dx = touches[0].clientX - touches[1].clientX;
-    const dy = touches[0].clientY - touches[1].clientY;
-    return Math.max(Math.sqrt(dx*dx + dy*dy), 1); // ゼロ除算防止
-  }
-
-  scroll.addEventListener('touchstart', e => {
-    if (e.touches.length === 2) {
-      pinchStartDist = getDist(e.touches);
-      pinchStartScale = pdfScale;
-      isPinching = false;
-      if (isDrawing) onEnd(); // 描画中なら終了
-    }
-  }, { passive: true });
-
-  scroll.addEventListener('touchmove', e => {
-    if (e.touches.length !== 2 || pinchStartDist === null) return;
-    const dist = getDist(e.touches);
-    if (!isPinching && Math.abs(dist - pinchStartDist) > PINCH_THRESHOLD) isPinching = true;
-    if (isPinching) {
-      e.preventDefault();
-      // startDistからの比率で計算（累積誤差なし）
-      const newScale = Math.min(Math.max(pinchStartScale * (dist / pinchStartDist), 0.3), 5.0);
-      pdfScale = newScale;
-      renderPage(currentPage);
-      updateZoomInfo();
-    }
-  }, { passive: false });
-
-  scroll.addEventListener('touchend', e => {
-    if (e.touches.length < 2) { pinchStartDist = null; isPinching = false; }
-  });
-})();
 
 // --- リサイザー ---
 (function() {
