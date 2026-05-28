@@ -75,7 +75,8 @@
   }
   .cwrap { flex: 1; position: relative; overflow: hidden; }
   canvas { position: absolute; top: 0; left: 0; touch-action: none; display: block; }
-  #pdf-scroll { width: 100%; height: 100%; overflow: auto; position: relative; -webkit-overflow-scrolling: touch; }
+  #pdf-draw { touch-action: pan-x pan-y; }
+  #pdf-scroll { width: 100%; height: 100%; overflow: auto; position: relative; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; }
   #pdf-canvas-wrap { position: relative; transform-origin: top left; }
 
   /* テキスト入力モーダル（画面下部固定） */
@@ -215,15 +216,9 @@
       </button>
     </div>
     <div class="sep"></div>
-    <button class="tbtn export-btn" id="btn-save-json" aria-label="JSONで保存">
-      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-      JSON保存
+    <button class="tbtn" id="btn-save" aria-label="一時保存">
+      <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
     </button>
-    <label class="tbtn export-btn" for="json-input" aria-label="JSONを読み込む" style="cursor:pointer;">
-      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-      JSON読込
-    </label>
-    <input type="file" id="json-input" accept="application/json" style="display:none">
     <button class="tbtn export-btn" id="btn-export" aria-label="PDFエクスポート">
       <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       PDF出力
@@ -673,30 +668,12 @@ $('btn-clear').addEventListener('click', () => {
 });
 $('btn-prev').addEventListener('click', () => { if (currentPage > 1) { const prev = currentPage; currentPage--; pdfScale = 1.0; renderPage(currentPage); redrawPanel('memo'); } });
 $('btn-next').addEventListener('click', () => { if (currentPage < totalPages) { currentPage++; pdfScale = 1.0; renderPage(currentPage); redrawPanel('memo'); } });
-// JSON保存
-$('btn-save-json').addEventListener('click', () => {
+// 一時保存
+$('btn-save').addEventListener('click', () => {
   try {
-    const blob = new Blob([JSON.stringify(annotations, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'pdfnote_annotations.json';
-    a.click(); URL.revokeObjectURL(url);
-    toast('JSONファイルをダウンロードしました');
-  } catch(e) { toast('保存に失敗しました'); }
-});
-// JSON読み込み
-$('json-input').addEventListener('change', e => {
-  const file = e.target.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = ev => {
-    try {
-      annotations = JSON.parse(ev.target.result);
-      redrawPanel('pdf'); redrawPanel('memo');
-      toast('書き込みデータを読み込みました');
-    } catch(err) { toast('JSONの読み込みに失敗しました'); }
-  };
-  reader.readAsText(file);
-  e.target.value = '';
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(annotations));
+    toast('保存しました');
+  } catch(e) { toast('保存できませんでした'); }
 });
 
 // --- PDF読み込み ---
@@ -715,11 +692,14 @@ const wrap = $('pdf-wrap');
 wrap.addEventListener('dragover', e => e.preventDefault());
 wrap.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f && f.type === 'application/pdf') loadPDF(f); });
 
-// --- ピンチズーム ---
+// --- ピンチズーム＋2本指スクロール ---
 (function() {
   const scroll = $('pdf-scroll');
   let lastDist = null;
   let lastScale = 1;
+  let startDist = null;
+  let isPinching = false;
+  const PINCH_THRESHOLD = 10; // この距離差以上でピンチと判定
 
   function getDist(touches) {
     const dx = touches[0].clientX - touches[1].clientX;
@@ -728,23 +708,39 @@ wrap.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfe
   }
 
   scroll.addEventListener('touchstart', e => {
-    if (e.touches.length === 2) { lastDist = getDist(e.touches); lastScale = pdfScale; e.preventDefault(); }
-  }, { passive: false });
+    if (e.touches.length === 2) {
+      startDist = getDist(e.touches);
+      lastDist = startDist;
+      lastScale = pdfScale;
+      isPinching = false;
+    }
+  }, { passive: true });
 
   scroll.addEventListener('touchmove', e => {
-    if (e.touches.length === 2 && lastDist) {
-      e.preventDefault();
+    if (e.touches.length === 2 && lastDist !== null) {
       const dist = getDist(e.touches);
-      const ratio = dist / lastDist;
-      const newScale = Math.min(Math.max(lastScale * ratio, 0.5), 5.0);
-      if (Math.abs(newScale - pdfScale) > 0.01) {
-        pdfScale = newScale;
-        renderPage(currentPage);
+      const distDiff = Math.abs(dist - startDist);
+
+      // 指の開閉量がしきい値を超えたらピンチと判定
+      if (!isPinching && distDiff > PINCH_THRESHOLD) isPinching = true;
+
+      if (isPinching) {
+        e.preventDefault();
+        const ratio = dist / lastDist;
+        const newScale = Math.min(Math.max(pdfScale * ratio, 0.5), 5.0);
+        if (Math.abs(newScale - pdfScale) > 0.005) {
+          pdfScale = newScale;
+          renderPage(currentPage);
+        }
+        lastDist = dist;
       }
+      // isPinching が false の間はブラウザのスクロールに任せる
     }
   }, { passive: false });
 
-  scroll.addEventListener('touchend', e => { if (e.touches.length < 2) lastDist = null; });
+  scroll.addEventListener('touchend', e => {
+    if (e.touches.length < 2) { lastDist = null; startDist = null; isPinching = false; }
+  });
 })();
 
 window.addEventListener('resize', resizeAll);
