@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PDF Note">
+<title>PDF Note</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; font-family: 'Helvetica Neue', sans-serif; }
+  #app { display: flex; flex-direction: column; width: 100vw; height: 100vh; }
+
+  #toolbar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 12px; padding-top: max(8px, env(safe-area-inset-top));
+    background: #12122a; border-bottom: 1px solid #2a2a4a;
+    flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; flex-shrink: 0;
+  }
+  #toolbar::-webkit-scrollbar { display: none; }
+
+  .tbtn {
+    display: flex; align-items: center; justify-content: center;
+    min-width: 40px; height: 40px; border-radius: 10px;
+    border: 1px solid #3a3a5c; background: #1e1e38;
+    color: #9090b8; font-size: 20px; cursor: pointer;
+    flex-shrink: 0; transition: all 0.15s;
+    -webkit-user-select: none; user-select: none;
+  }
+  .tbtn:active { transform: scale(0.93); }
+  .tbtn.active { background: #2d2060; border-color: #7c5cbf; color: #c4a8ff; }
+  .tbtn svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .tbtn.export-btn { min-width: auto; padding: 0 12px; gap: 5px; font-size: 12px; color: #c4a8ff; border-color: #7c5cbf; background: #2d2060; }
+  .tbtn.export-btn svg { width: 16px; height: 16px; }
+
+  .sep { width: 1px; height: 28px; background: #2a2a4a; flex-shrink: 0; margin: 0 2px; }
+
+  #color-row { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+  .color-dot {
+    width: 22px; height: 22px; border-radius: 50%; cursor: pointer; flex-shrink: 0;
+    border: 2px solid transparent; transition: transform 0.15s;
+  }
+  .color-dot.active { border-color: white; transform: scale(1.2); }
+
+  #size-wrap { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  #size-label { font-size: 11px; color: #6060a0; white-space: nowrap; }
+  input[type=range] {
+    -webkit-appearance: none; width: 70px; height: 4px; border-radius: 2px;
+    background: #3a3a5c; outline: none; flex-shrink: 0;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px;
+    border-radius: 50%; background: #7c5cbf; cursor: pointer;
+  }
+
+  #font-size-wrap { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+  #font-size-label { font-size: 11px; color: #6060a0; white-space: nowrap; }
+  #font-size-select {
+    background: #1e1e38; border: 1px solid #3a3a5c; color: #9090b8;
+    border-radius: 8px; padding: 4px 6px; font-size: 12px; cursor: pointer;
+    -webkit-appearance: none; appearance: none; text-align: center;
+  }
+
+  #page-ctrl { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
+  #page-info { font-size: 12px; color: #6060a0; white-space: nowrap; min-width: 48px; text-align: center; }
+
+  #panels { display: flex; flex: 1; overflow: hidden; gap: 2px; background: #0d0d1e; }
+  .panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #12122a; }
+  .plabel {
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #404070; text-align: center; padding: 4px 0;
+    background: #0f0f22; border-bottom: 1px solid #1e1e3a; flex-shrink: 0;
+  }
+  .cwrap { flex: 1; position: relative; overflow: hidden; }
+  canvas { position: absolute; top: 0; left: 0; touch-action: none; display: block; }
+
+  #text-input-overlay {
+    position: absolute; z-index: 30; display: none; flex-direction: column; gap: 0;
+  }
+  #text-input-overlay.visible { display: flex; }
+  #text-textarea {
+    min-width: 160px; min-height: 40px;
+    background: rgba(255,255,255,0.97);
+    border: 2px solid #7c5cbf; border-radius: 8px 8px 0 0;
+    padding: 6px 10px; font-size: 16px;
+    outline: none; resize: both; overflow: auto;
+    color: #1a1a2e; line-height: 1.5;
+    font-family: 'Helvetica Neue', sans-serif;
+  }
+  #text-input-actions { display: flex; }
+  .text-action-btn {
+    flex: 1; padding: 7px 0; font-size: 13px; cursor: pointer;
+    border: none; -webkit-user-select: none; user-select: none;
+  }
+  #text-confirm-btn { background: #7c5cbf; color: white; border-radius: 0 0 0 8px; border-right: 1px solid #5a3a9f; }
+  #text-cancel-btn { background: #3a3a5c; color: #9090b8; border-radius: 0 0 8px 0; }
+
+  #drop-overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px;
+    background: #12122a; z-index: 20;
+  }
+  #drop-overlay svg { width: 52px; height: 52px; stroke: #4a3a80; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  #drop-overlay p { font-size: 14px; color: #6060a0; }
+  .open-btn {
+    padding: 10px 22px; border-radius: 12px;
+    background: #2d2060; border: 1px solid #7c5cbf;
+    color: #c4a8ff; font-size: 14px; cursor: pointer;
+    -webkit-user-select: none; user-select: none;
+  }
+  #file-input { display: none; }
+
+  /* エクスポートモーダル */
+  #export-modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: none; align-items: center; justify-content: center; z-index: 200;
+  }
+  #export-modal.visible { display: flex; }
+  #export-box {
+    background: #1e1e38; border: 1px solid #3a3a5c; border-radius: 16px;
+    padding: 24px; width: min(340px, 90vw); display: flex; flex-direction: column; gap: 14px;
+  }
+  #export-box h3 { font-size: 16px; color: #c4a8ff; font-weight: 600; }
+  #export-box p { font-size: 13px; color: #7070a0; line-height: 1.6; }
+  .export-option {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px; border-radius: 10px;
+    border: 1px solid #3a3a5c; background: #12122a; cursor: pointer;
+    transition: background 0.15s; -webkit-user-select: none; user-select: none;
+  }
+  .export-option:hover, .export-option:active { background: #2d2060; border-color: #7c5cbf; }
+  .export-option svg { width: 22px; height: 22px; stroke: #c4a8ff; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+  .export-option-text strong { display: block; font-size: 14px; color: #e0d8ff; }
+  .export-option-text span { font-size: 12px; color: #6060a0; }
+  #export-close { align-self: center; font-size: 13px; color: #6060a0; cursor: pointer; padding: 4px 12px; }
+  #export-progress {
+    font-size: 13px; color: #c4a8ff; text-align: center; display: none; padding: 8px 0;
+  }
+
+  #toast {
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+    background: #2d2060; border: 1px solid #7c5cbf; color: #c4a8ff;
+    padding: 9px 20px; border-radius: 20px; font-size: 13px;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 99;
+    white-space: nowrap;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="toolbar">
+    <button class="tbtn active" id="btn-pen" aria-label="ペン">
+      <svg viewBox="0 0 24 24"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
+    </button>
+    <button class="tbtn" id="btn-marker" aria-label="マーカー">
+      <svg viewBox="0 0 24 24"><path d="M3 21h18"/><path d="m9 3 2 2-6 6-2-2 6-6z"/><path d="m11 5 4 4"/><path d="m5 11 4 4"/><path d="M3 21 9 15"/></svg>
+    </button>
+    <button class="tbtn" id="btn-text" aria-label="テキスト">
+      <svg viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+    </button>
+    <button class="tbtn" id="btn-eraser" aria-label="消しゴム">
+      <svg viewBox="0 0 24 24"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
+    </button>
+    <div class="sep"></div>
+    <div id="color-row">
+      <div class="color-dot active" style="background:#5b3abf" data-color="#5b3abf"></div>
+      <div class="color-dot" style="background:#e05050" data-color="#e05050"></div>
+      <div class="color-dot" style="background:#1a9e6e" data-color="#1a9e6e"></div>
+      <div class="color-dot" style="background:#d47a10" data-color="#d47a10"></div>
+      <div class="color-dot" style="background:#1a1a1a" data-color="#1a1a1a"></div>
+    </div>
+    <div class="sep"></div>
+    <div id="size-wrap">
+      <span id="size-label">太さ</span>
+      <input type="range" id="size-slider" min="1" max="20" value="3" step="1">
+    </div>
+    <div id="font-size-wrap" style="display:none">
+      <span id="font-size-label">文字</span>
+      <select id="font-size-select">
+        <option value="12">12px</option>
+        <option value="16" selected>16px</option>
+        <option value="20">20px</option>
+        <option value="24">24px</option>
+        <option value="32">32px</option>
+      </select>
+    </div>
+    <div class="sep"></div>
+    <button class="tbtn" id="btn-undo" aria-label="元に戻す">
+      <svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+    </button>
+    <button class="tbtn" id="btn-clear" aria-label="消去">
+      <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+    </button>
+    <div class="sep"></div>
+    <div id="page-ctrl">
+      <button class="tbtn" id="btn-prev" aria-label="前ページ">
+        <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <span id="page-info">— / —</span>
+      <button class="tbtn" id="btn-next" aria-label="次ページ">
+        <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </div>
+    <div class="sep"></div>
+    <button class="tbtn export-btn" id="btn-save-json" aria-label="JSONで保存">
+      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      JSON保存
+    </button>
+    <label class="tbtn export-btn" for="json-input" aria-label="JSONを読み込む" style="cursor:pointer;">
+      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      JSON読込
+    </label>
+    <input type="file" id="json-input" accept="application/json" style="display:none">
+    <button class="tbtn export-btn" id="btn-export" aria-label="PDFエクスポート">
+      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      PDF出力
+    </button>
+  </div>
+
+  <div id="panels">
+    <div class="panel">
+      <div class="plabel">PDF</div>
+      <div class="cwrap" id="pdf-wrap">
+        <canvas id="pdf-bg"></canvas>
+        <canvas id="pdf-draw"></canvas>
+        <div id="drop-overlay">
+          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          <p>PDFをここにドロップ</p>
+          <label class="open-btn" for="file-input">PDFを開く</label>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="plabel">メモ</div>
+      <div class="cwrap" id="memo-wrap">
+        <canvas id="memo-bg"></canvas>
+        <canvas id="memo-draw"></canvas>
+        <div id="text-input-overlay">
+          <textarea id="text-textarea" rows="2" placeholder="ここに入力…"></textarea>
+          <div id="text-input-actions">
+            <button class="text-action-btn" id="text-confirm-btn">確定</button>
+            <button class="text-action-btn" id="text-cancel-btn">キャンセル</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- エクスポートモーダル -->
+<div id="export-modal">
+  <div id="export-box">
+    <h3>📄 PDF出力</h3>
+    <p>書き込みを合成したPDFをダウンロードします。<br>出力する内容を選んでください。</p>
+    <div class="export-option" id="export-pdf-only">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <div class="export-option-text">
+        <strong>PDFのみ（書き込みあり）</strong>
+        <span>元のPDFに書き込みを重ねて出力</span>
+      </div>
+    </div>
+    <div class="export-option" id="export-memo-only">
+      <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      <div class="export-option-text">
+        <strong>メモのみ</strong>
+        <span>右側のメモ欄だけPDFで出力</span>
+      </div>
+    </div>
+    <div class="export-option" id="export-both">
+      <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
+      <div class="export-option-text">
+        <strong>PDF＋メモ（見開き）</strong>
+        <span>左右を並べて1つのPDFに出力</span>
+      </div>
+    </div>
+    <div id="export-progress">出力中… しばらくお待ちください</div>
+    <div id="export-close">キャンセル</div>
+  </div>
+</div>
+
+<input type="file" id="file-input" accept="application/pdf">
+<div id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+(function(){
+'use strict';
+const STORAGE_KEY = 'pdfnote_v3';
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+let pdfDoc = null, currentPage = 1, totalPages = 0;
+let activeTool = 'pen', drawColor = '#5b3abf', drawSize = 3, fontSize = 16;
+let isDrawing = false, activePanel = null, currentLine = null;
+let annotations = {};
+let pdfRawData = null; // 元PDFのArrayBuffer保持
+
+const $ = id => document.getElementById(id);
+const pdfBg = $('pdf-bg'), pdfDraw = $('pdf-draw');
+const memoBg = $('memo-bg'), memoDraw = $('memo-draw');
+const pdfCtx = pdfDraw.getContext('2d');
+const memoCtx = memoDraw.getContext('2d');
+const textOverlay = $('text-input-overlay');
+const textArea = $('text-textarea');
+let pendingTextX = 0, pendingTextY = 0;
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg;
+  t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2500);
+}
+function pageKey(panel) { return panel + '_p' + currentPage; }
+function save() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(annotations)); toast('書き込みを保存しました'); }
+  catch(e) { toast('保存できませんでした'); }
+}
+function load() {
+  try { const d = localStorage.getItem(STORAGE_KEY); if (d) annotations = JSON.parse(d); }
+  catch(e) {}
+}
+
+function resizeAll() {
+  const w1 = $('pdf-wrap'), w2 = $('memo-wrap');
+  [pdfBg, pdfDraw].forEach(c => { c.width = w1.clientWidth; c.height = w1.clientHeight; });
+  [memoBg, memoDraw].forEach(c => { c.width = w2.clientWidth; c.height = w2.clientHeight; });
+  drawMemoLines();
+  if (pdfDoc) renderPage(currentPage); else redrawPanel('pdf');
+  redrawPanel('memo');
+}
+
+function drawMemoLines() {
+  const ctx = memoBg.getContext('2d');
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, memoBg.width, memoBg.height);
+  ctx.strokeStyle = '#dde0f0'; ctx.lineWidth = 0.8;
+  for (let y = 36; y < memoBg.height; y += 36) {
+    ctx.beginPath(); ctx.moveTo(16, y); ctx.lineTo(memoBg.width - 16, y); ctx.stroke();
+  }
+  ctx.strokeStyle = '#f0c0c0'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(52, 0); ctx.lineTo(52, memoBg.height); ctx.stroke();
+}
+
+async function renderPage(n) {
+  if (!pdfDoc) return;
+  const page = await pdfDoc.getPage(n);
+  const wrap = $('pdf-wrap');
+  const vp0 = page.getViewport({ scale: 1 });
+  const scale = Math.min(wrap.clientWidth / vp0.width, wrap.clientHeight / vp0.height) * 0.96;
+  const vp = page.getViewport({ scale });
+  const bgCtx = pdfBg.getContext('2d');
+  bgCtx.fillStyle = '#ffffff'; bgCtx.fillRect(0, 0, pdfBg.width, pdfBg.height);
+  const ox = (pdfBg.width - vp.width) / 2, oy = (pdfBg.height - vp.height) / 2;
+  await page.render({ canvasContext: bgCtx, viewport: vp, transform: [1,0,0,1,ox,oy] }).promise;
+  redrawPanel('pdf');
+  $('page-info').textContent = n + ' / ' + totalPages;
+}
+
+function redrawPanel(panel) {
+  const canvas = panel === 'pdf' ? pdfDraw : memoDraw;
+  const ctx = panel === 'pdf' ? pdfCtx : memoCtx;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  (annotations[pageKey(panel)] || []).forEach(item => {
+    if (item.type === 'line') applyLine(ctx, item);
+    else if (item.type === 'text') applyText(ctx, item);
+  });
+}
+
+function applyLine(ctx, line) {
+  if (!line.pts || line.pts.length < 2) return;
+  ctx.save();
+  ctx.strokeStyle = line.color; ctx.lineWidth = line.size;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (line.tool === 'marker') { ctx.globalAlpha = 0.32; ctx.lineWidth = line.size * 4; }
+  if (line.tool === 'eraser') { ctx.globalCompositeOperation = 'destination-out'; ctx.lineWidth = line.size * 5; }
+  ctx.beginPath();
+  ctx.moveTo(line.pts[0].x, line.pts[0].y);
+  for (let i = 1; i < line.pts.length; i++) ctx.lineTo(line.pts[i].x, line.pts[i].y);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function applyText(ctx, item) {
+  ctx.save();
+  ctx.font = item.size + 'px "Helvetica Neue", Helvetica, sans-serif';
+  ctx.fillStyle = item.color;
+  item.text.split('\n').forEach((line, i) => {
+    ctx.fillText(line, item.x, item.y + i * (item.size * 1.4));
+  });
+  ctx.restore();
+}
+
+// --- PDF エクスポート ---
+// 指定ページをオフスクリーンCanvasに描画して返す
+async function renderPageToCanvas(pageNum, width, height) {
+  const page = await pdfDoc.getPage(pageNum);
+  const vp0 = page.getViewport({ scale: 1 });
+  const scale = Math.min(width / vp0.width, height / vp0.height) * 0.96;
+  const vp = page.getViewport({ scale });
+
+  const c = document.createElement('canvas');
+  c.width = width; c.height = height;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, width, height);
+  const ox = (width - vp.width) / 2, oy = (height - vp.height) / 2;
+  await page.render({ canvasContext: ctx, viewport: vp, transform: [1,0,0,1,ox,oy] }).promise;
+  return c;
+}
+
+function renderAnnotationsToCanvas(panel, pageNum, width, height) {
+  const c = document.createElement('canvas');
+  c.width = width; c.height = height;
+  const ctx = c.getContext('2d');
+  const key = panel + '_p' + pageNum;
+  (annotations[key] || []).forEach(item => {
+    if (item.type === 'line') applyLine(ctx, item);
+    else if (item.type === 'text') applyText(ctx, item);
+  });
+  return c;
+}
+
+function renderMemoToCanvas(pageNum, width, height) {
+  const c = document.createElement('canvas');
+  c.width = width; c.height = height;
+  const ctx = c.getContext('2d');
+  // 背景（白 + 罫線）
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = '#dde0f0'; ctx.lineWidth = 0.8;
+  for (let y = 36; y < height; y += 36) {
+    ctx.beginPath(); ctx.moveTo(16, y); ctx.lineTo(width - 16, y); ctx.stroke();
+  }
+  ctx.strokeStyle = '#f0c0c0'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(52, y => y); ctx.lineTo(52, height); ctx.stroke();
+  // 書き込み
+  const key = 'memo_p' + pageNum;
+  (annotations[key] || []).forEach(item => {
+    if (item.type === 'line') applyLine(ctx, item);
+    else if (item.type === 'text') applyText(ctx, item);
+  });
+  return c;
+}
+
+async function exportPDF(mode) {
+  const prog = $('export-progress');
+  prog.style.display = 'block';
+
+  const { jsPDF } = window.jspdf;
+  // A4サイズ（pt）: 595 x 842
+  const PAGE_W = 595, PAGE_H = 842;
+  const RENDER_W = 1190, RENDER_H = 1684; // 2x解像度
+
+  let pdf;
+
+  if (mode === 'pdf-only') {
+    if (!pdfDoc) { toast('PDFが読み込まれていません'); prog.style.display = 'none'; return; }
+    pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: [PAGE_W, PAGE_H] });
+    for (let p = 1; p <= totalPages; p++) {
+      prog.textContent = `出力中… ${p} / ${totalPages} ページ`;
+      if (p > 1) pdf.addPage([PAGE_W, PAGE_H]);
+      // PDFページ描画
+      const pdfCanvas = await renderPageToCanvas(p, RENDER_W, RENDER_H);
+      // 書き込み重ねる
+      const annCanvas = renderAnnotationsToCanvas('pdf', p, RENDER_W, RENDER_H);
+      const merged = document.createElement('canvas');
+      merged.width = RENDER_W; merged.height = RENDER_H;
+      const mCtx = merged.getContext('2d');
+      mCtx.drawImage(pdfCanvas, 0, 0);
+      mCtx.drawImage(annCanvas, 0, 0);
+      pdf.addImage(merged.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, PAGE_W, PAGE_H);
+    }
+
+  } else if (mode === 'memo-only') {
+    pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: [PAGE_W, PAGE_H] });
+    const pages = pdfDoc ? totalPages : 1;
+    for (let p = 1; p <= pages; p++) {
+      prog.textContent = `出力中… ${p} / ${pages} ページ`;
+      if (p > 1) pdf.addPage([PAGE_W, PAGE_H]);
+      const memoCanvas = renderMemoToCanvas(p, RENDER_W, RENDER_H);
+      pdf.addImage(memoCanvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, PAGE_W, PAGE_H);
+    }
+
+  } else if (mode === 'both') {
+    // 見開き: 横長A4（幅2倍）
+    const SPREAD_W = PAGE_W * 2, SPREAD_H = PAGE_H;
+    pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: [SPREAD_W, SPREAD_H] });
+    const pages = pdfDoc ? totalPages : 1;
+    for (let p = 1; p <= pages; p++) {
+      prog.textContent = `出力中… ${p} / ${pages} ページ`;
+      if (p > 1) pdf.addPage([SPREAD_W, SPREAD_H]);
+      const spreadCanvas = document.createElement('canvas');
+      spreadCanvas.width = RENDER_W * 2; spreadCanvas.height = RENDER_H;
+      const sCtx = spreadCanvas.getContext('2d');
+      sCtx.fillStyle = '#ffffff'; sCtx.fillRect(0, 0, spreadCanvas.width, spreadCanvas.height);
+
+      if (pdfDoc) {
+        const pdfCanvas = await renderPageToCanvas(p, RENDER_W, RENDER_H);
+        const annCanvas = renderAnnotationsToCanvas('pdf', p, RENDER_W, RENDER_H);
+        sCtx.drawImage(pdfCanvas, 0, 0);
+        sCtx.drawImage(annCanvas, 0, 0);
+      }
+      const memoCanvas = renderMemoToCanvas(p, RENDER_W, RENDER_H);
+      sCtx.drawImage(memoCanvas, RENDER_W, 0);
+
+      // 区切り線
+      sCtx.strokeStyle = '#cccccc'; sCtx.lineWidth = 2;
+      sCtx.beginPath(); sCtx.moveTo(RENDER_W, 0); sCtx.lineTo(RENDER_W, RENDER_H); sCtx.stroke();
+
+      pdf.addImage(spreadCanvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, SPREAD_W, SPREAD_H);
+    }
+  }
+
+  prog.style.display = 'none';
+  $('export-modal').classList.remove('visible');
+  pdf.save('annotated.pdf');
+  toast('PDFをダウンロードしました');
+}
+
+// モーダル開閉
+$('btn-export').addEventListener('click', () => {
+  $('export-modal').classList.add('visible');
+  $('export-progress').style.display = 'none';
+});
+$('export-close').addEventListener('click', () => $('export-modal').classList.remove('visible'));
+$('export-pdf-only').addEventListener('click', () => exportPDF('pdf-only'));
+$('export-memo-only').addEventListener('click', () => exportPDF('memo-only'));
+$('export-both').addEventListener('click', () => exportPDF('both'));
+
+// --- テキスト入力 ---
+function openTextInput(x, y) {
+  pendingTextX = x; pendingTextY = y;
+  const memoWrap = $('memo-wrap');
+  const maxLeft = memoWrap.clientWidth - 200, maxTop = memoWrap.clientHeight - 120;
+  textOverlay.style.left = Math.min(x, maxLeft) + 'px';
+  textOverlay.style.top = Math.min(y, maxTop) + 'px';
+  textArea.value = '';
+  textArea.style.fontSize = fontSize + 'px';
+  textArea.style.color = drawColor;
+  textOverlay.classList.add('visible');
+  setTimeout(() => textArea.focus(), 50);
+}
+function confirmText() {
+  const text = textArea.value.trim();
+  textOverlay.classList.remove('visible');
+  if (!text) return;
+  const k = pageKey('memo');
+  if (!annotations[k]) annotations[k] = [];
+  annotations[k].push({ type: 'text', text, x: pendingTextX, y: pendingTextY + fontSize, color: drawColor, size: fontSize });
+  redrawPanel('memo');
+}
+function cancelText() { textOverlay.classList.remove('visible'); textArea.value = ''; }
+$('text-confirm-btn').addEventListener('click', confirmText);
+$('text-confirm-btn').addEventListener('touchend', e => { e.preventDefault(); confirmText(); });
+$('text-cancel-btn').addEventListener('click', cancelText);
+$('text-cancel-btn').addEventListener('touchend', e => { e.preventDefault(); cancelText(); });
+
+// --- 描画 ---
+function getPos(e, canvas) {
+  const r = canvas.getBoundingClientRect();
+  const s = e.touches ? e.touches[0] : e;
+  return { x: s.clientX - r.left, y: s.clientY - r.top };
+}
+function onStart(e, panel) {
+  if (activeTool === 'text') {
+    if (panel !== 'memo') return;
+    openTextInput(...Object.values(getPos(e, memoDraw)));
+    e.preventDefault(); return;
+  }
+  isDrawing = true; activePanel = panel;
+  const canvas = panel === 'pdf' ? pdfDraw : memoDraw;
+  const pos = getPos(e, canvas);
+  currentLine = { type: 'line', tool: activeTool, color: drawColor, size: drawSize, pts: [pos] };
+  e.preventDefault();
+}
+function onMove(e) {
+  if (!isDrawing || !activePanel || !currentLine) return;
+  const canvas = activePanel === 'pdf' ? pdfDraw : memoDraw;
+  const ctx = activePanel === 'pdf' ? pdfCtx : memoCtx;
+  const pos = getPos(e, canvas);
+  currentLine.pts.push(pos);
+  const pts = currentLine.pts;
+  ctx.save();
+  ctx.strokeStyle = currentLine.color; ctx.lineWidth = currentLine.size;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (currentLine.tool === 'marker') { ctx.globalAlpha = 0.32; ctx.lineWidth = currentLine.size * 4; }
+  if (currentLine.tool === 'eraser') { ctx.globalCompositeOperation = 'destination-out'; ctx.lineWidth = currentLine.size * 5; }
+  ctx.beginPath();
+  ctx.moveTo(pts[pts.length-2].x, pts[pts.length-2].y);
+  ctx.lineTo(pts[pts.length-1].x, pts[pts.length-1].y);
+  ctx.stroke();
+  ctx.restore();
+  e.preventDefault();
+}
+function onEnd() {
+  if (!isDrawing || !activePanel || !currentLine) return;
+  isDrawing = false;
+  const k = pageKey(activePanel);
+  if (!annotations[k]) annotations[k] = [];
+  annotations[k].push(currentLine);
+  currentLine = null; activePanel = null;
+}
+[pdfDraw, memoDraw].forEach((canvas, i) => {
+  const panel = i === 0 ? 'pdf' : 'memo';
+  canvas.addEventListener('mousedown', e => onStart(e, panel));
+  canvas.addEventListener('touchstart', e => onStart(e, panel), { passive: false });
+});
+document.addEventListener('mousemove', onMove);
+document.addEventListener('touchmove', onMove, { passive: false });
+document.addEventListener('mouseup', onEnd);
+document.addEventListener('touchend', onEnd);
+
+// --- ツール ---
+function setTool(t) {
+  activeTool = t;
+  ['pen','marker','text','eraser'].forEach(n => { const b = $('btn-'+n); if(b) b.classList.toggle('active', n===t); });
+  $('size-wrap').style.display = t === 'text' ? 'none' : 'flex';
+  $('font-size-wrap').style.display = t === 'text' ? 'flex' : 'none';
+  if (t === 'text') toast('メモ欄をタップして文字を入力');
+}
+$('btn-pen').addEventListener('click', () => setTool('pen'));
+$('btn-marker').addEventListener('click', () => setTool('marker'));
+$('btn-text').addEventListener('click', () => setTool('text'));
+$('btn-eraser').addEventListener('click', () => setTool('eraser'));
+
+document.querySelectorAll('.color-dot').forEach(dot => {
+  dot.addEventListener('click', () => {
+    document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
+    dot.classList.add('active'); drawColor = dot.dataset.color;
+    textArea.style.color = drawColor;
+    if (activeTool === 'eraser') setTool('pen');
+  });
+});
+$('size-slider').addEventListener('input', e => drawSize = parseInt(e.target.value));
+$('font-size-select').addEventListener('change', e => { fontSize = parseInt(e.target.value); textArea.style.fontSize = fontSize + 'px'; });
+
+$('btn-undo').addEventListener('click', () => {
+  ['pdf','memo'].forEach(p => { const k = pageKey(p); if (annotations[k]?.length) { annotations[k].pop(); redrawPanel(p); } });
+});
+$('btn-clear').addEventListener('click', () => {
+  ['pdf','memo'].forEach(p => { annotations[pageKey(p)] = []; redrawPanel(p); });
+  toast('このページの書き込みを消しました');
+});
+$('btn-prev').addEventListener('click', () => { if (currentPage > 1) { currentPage--; renderPage(currentPage); redrawPanel('memo'); } });
+$('btn-next').addEventListener('click', () => { if (currentPage < totalPages) { currentPage++; renderPage(currentPage); redrawPanel('memo'); } });
+// JSON保存
+$('btn-save-json').addEventListener('click', () => {
+  try {
+    const blob = new Blob([JSON.stringify(annotations, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'pdfnote_annotations.json';
+    a.click(); URL.revokeObjectURL(url);
+    toast('JSONファイルをダウンロードしました');
+  } catch(e) { toast('保存に失敗しました'); }
+});
+// JSON読み込み
+$('json-input').addEventListener('change', e => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      annotations = JSON.parse(ev.target.result);
+      redrawPanel('pdf'); redrawPanel('memo');
+      toast('書き込みデータを読み込みました');
+    } catch(err) { toast('JSONの読み込みに失敗しました'); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+// --- PDF読み込み ---
+async function loadPDF(file) {
+  try {
+    pdfRawData = await file.arrayBuffer();
+    pdfDoc = await pdfjsLib.getDocument({ data: pdfRawData.slice(0) }).promise;
+    totalPages = pdfDoc.numPages; currentPage = 1;
+    $('drop-overlay').style.display = 'none';
+    renderPage(1);
+    toast('PDFを読み込みました');
+  } catch(e) { toast('PDFの読み込みに失敗しました'); }
+}
+$('file-input').addEventListener('change', e => { if (e.target.files[0]) loadPDF(e.target.files[0]); });
+const wrap = $('pdf-wrap');
+wrap.addEventListener('dragover', e => e.preventDefault());
+wrap.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f && f.type === 'application/pdf') loadPDF(f); });
+
+window.addEventListener('resize', resizeAll);
+load();
+setTimeout(resizeAll, 80);
+})();
+</script>
+</body>
+</html>
